@@ -1,0 +1,823 @@
+-- phpMyAdmin SQL Dump
+-- version 5.2.1
+-- https://www.phpmyadmin.net/
+--
+-- Host: 127.0.0.1
+-- Generation Time: Nov 04, 2025 at 05:35 PM
+-- Server version: 10.4.32-MariaDB
+-- PHP Version: 8.2.12
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
+--
+-- Database: `cmc_tamsna_auth_test`
+--
+
+DELIMITER $$
+--
+-- Procedures
+--
+CREATE DEFINER=`root`@`localhost` PROCEDURE `CleanOldSessions` ()   BEGIN
+    DELETE FROM session_data WHERE last_activity < UNIX_TIMESTAMP() - 28800; -- 8 heures
+    DELETE FROM failed_logins WHERE attempt_time < UNIX_TIMESTAMP() - 3600; -- 1 heure
+    DELETE FROM security_logs WHERE timestamp < UNIX_TIMESTAMP() - 2592000; -- 30 jours
+    DELETE FROM activity_logs WHERE timestamp < UNIX_TIMESTAMP() - 2592000; -- 30 jours
+    DELETE FROM csrf_tokens WHERE expires_at < UNIX_TIMESTAMP(); -- Tokens expirés
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `GetMonthlyStats` (IN `year_num` INT, IN `month_num` INT)   BEGIN
+    SELECT 
+        COUNT(*) as total_demandes,
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approuvees,
+        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejetees,
+        SUM(CASE WHEN type_autorisation = 'urgence' THEN 1 ELSE 0 END) as urgences,
+        AVG(duree_jours) as duree_moyenne
+    FROM autorisations 
+    WHERE annee = year_num AND mois = month_num;
+END$$
+
+CREATE DEFINER=`root`@`localhost` PROCEDURE `GetUserStats` (IN `user_id` INT)   BEGIN
+    SELECT 
+        u.nom,
+        u.prenom,
+        u.filiere,
+        u.groupe,
+        COUNT(a.id) as total_autorisations,
+        SUM(CASE WHEN a.status = 'approved' THEN 1 ELSE 0 END) as autorisations_approuvees,
+        SUM(CASE WHEN a.status = 'rejected' THEN 1 ELSE 0 END) as autorisations_rejetees,
+        SUM(CASE WHEN a.type_autorisation = 'urgence' THEN 1 ELSE 0 END) as urgences,
+        AVG(a.duree_jours) as duree_moyenne
+    FROM users u
+    LEFT JOIN autorisations a ON u.id = a.user_id
+    WHERE u.id = user_id
+    GROUP BY u.id;
+END$$
+
+DELIMITER ;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `activity_logs`
+--
+
+CREATE TABLE `activity_logs` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `action` text NOT NULL,
+  `type` varchar(50) NOT NULL,
+  `ip_address` varchar(45) NOT NULL,
+  `user_agent` text DEFAULT NULL,
+  `timestamp` int(11) NOT NULL,
+  `details` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `activity_logs`
+--
+
+INSERT INTO `activity_logs` (`id`, `user_id`, `action`, `type`, `ip_address`, `user_agent`, `timestamp`, `details`) VALUES
+(1, 2, 'Connexion réussie', 'login', '192.168.1.100', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762262427, 'Connexion depuis le réseau local'),
+(2, 3, 'Demande d\'autorisation soumise', 'autorisation', '192.168.1.101', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 1762258827, 'ID Autorisation: 3'),
+(3, 4, 'Modification du profil', 'profile', '192.168.1.102', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 1762264227, 'Changement de numéro de téléphone'),
+(4, 1, 'Approbation d\'autorisation #4', 'admin_action', '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762265127, 'Urgence médicale approuvée'),
+(5, 5, 'Tentative de connexion échouée', 'login_failed', '192.168.1.103', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762265727, 'Mot de passe incorrect'),
+(6, 6, 'Demande d\'autorisation d\'urgence', 'urgence', '192.168.1.104', 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/537.36', 1762261227, 'Urgence familiale - décès'),
+(7, 1, 'Rejet d\'autorisation #2', 'admin_action', '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762259527, 'Durée trop longue demandée'),
+(8, 8, 'Annulation d\'autorisation', 'autorisation', '192.168.1.105', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762260527, 'Autorisation #12 annulée');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `autorisations`
+--
+
+CREATE TABLE `autorisations` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `nom` varchar(100) NOT NULL,
+  `prenom` varchar(100) NOT NULL,
+  `telephone` varchar(20) NOT NULL,
+  `parent_telephone` varchar(20) NOT NULL,
+  `chambre` varchar(10) NOT NULL,
+  `date_demande` date NOT NULL,
+  `date_depart` date NOT NULL,
+  `date_retour` date NOT NULL,
+  `signature` text DEFAULT NULL,
+  `status` enum('pending','approved','rejected','completed','expired','cancelled') DEFAULT 'pending',
+  `pointage` tinyint(1) DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `duree_jours` int(11) DEFAULT NULL,
+  `annee` int(11) DEFAULT NULL,
+  `mois` int(11) DEFAULT NULL,
+  `trimestre` int(11) DEFAULT NULL,
+  `type_autorisation` enum('normale','urgence') DEFAULT 'normale',
+  `motif_urgence` text DEFAULT NULL,
+  `justificatif_urgence` text DEFAULT NULL,
+  `urgence_approuvee_par` int(11) DEFAULT NULL,
+  `date_urgence` datetime DEFAULT NULL,
+  `motif_demande` text DEFAULT NULL,
+  `destination` varchar(255) DEFAULT NULL,
+  `heure_depart` time DEFAULT NULL,
+  `heure_retour` time DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `autorisations`
+--
+
+INSERT INTO `autorisations` (`id`, `user_id`, `nom`, `prenom`, `telephone`, `parent_telephone`, `chambre`, `date_demande`, `date_depart`, `date_retour`, `signature`, `status`, `pointage`, `created_at`, `duree_jours`, `annee`, `mois`, `trimestre`, `type_autorisation`, `motif_urgence`, `justificatif_urgence`, `urgence_approuvee_par`, `date_urgence`, `motif_demande`, `destination`, `heure_depart`, `heure_retour`) VALUES
+(1, 2, 'Daifi', 'Mohammed El Mahdi', '0600000000', '0700000000', '7', '2025-10-21', '2025-10-25', '2025-10-27', NULL, 'approved', 1, '2025-11-04 14:20:27', 2, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Visite familiale', 'Casablanca', '08:00:00', '20:00:00'),
+(2, 2, 'Daifi', 'Mohammed El Mahdi', '0600000000', '0700000000', '7', '2025-10-21', '2025-10-08', '2025-10-23', NULL, 'rejected', 0, '2025-11-04 14:20:27', 15, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Vacances familiales', 'Agadir', '09:00:00', '18:00:00'),
+(3, 3, 'Ayoub', 'Amine', '0633549914', '0633549914', '7', '2025-10-21', '2025-10-21', '2025-10-23', NULL, 'approved', 0, '2025-11-04 14:20:27', 2, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Rendez-vous médical', 'Rabat', '10:00:00', '16:00:00'),
+(4, 4, 'Alaoui', 'Fatima', '0612345678', '0623456789', '12', '2025-10-22', '2025-10-23', '2025-10-24', NULL, 'approved', 1, '2025-11-04 14:20:27', 1, 2025, 10, 4, 'urgence', 'Rendez-vous médical urgent', 'Certificat médical fourni', 1, '2025-10-22 14:30:00', 'Consultation spécialiste', 'Hôpital Ibn Sina, Rabat', '14:00:00', '19:00:00'),
+(5, 5, 'Benali', 'Karim', '0634567890', '0645678901', '15', '2025-10-20', '2025-10-21', '2025-10-22', NULL, 'completed', 1, '2025-11-04 14:20:27', 1, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Courses personnelles', 'Centre commercial Megamall', '15:00:00', '21:00:00'),
+(6, 6, 'Chakir', 'Amina', '0645678901', '0656789012', '8', '2025-10-19', '2025-10-20', '2025-10-22', NULL, 'approved', 0, '2025-11-04 14:20:27', 2, 2025, 10, 4, 'urgence', 'Urgence familiale', 'Décès dans la famille proche', 1, '2025-10-19 18:45:00', 'Deuil familial', 'Kénitra', '16:00:00', '22:00:00'),
+(7, 8, 'El Fassi', 'Hassan', '0667890123', '0678901234', '18', '2025-10-18', '2025-10-19', '2025-10-20', NULL, 'expired', 0, '2025-11-04 14:20:27', 1, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Visite chez des amis', 'Salé', '17:00:00', '23:00:00'),
+(8, 9, 'Bennani', 'Samira', '0678901234', '0689012345', '5', '2025-10-23', '2025-10-24', '2025-10-26', NULL, 'pending', 0, '2025-11-04 14:20:27', 2, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Week-end en famille', 'Tanger', '08:30:00', '20:30:00'),
+(9, 3, 'Ayoub', 'Amine', '0633549914', '0633549914', '7', '2025-10-24', '2025-10-25', '2025-10-26', NULL, 'approved', 1, '2025-11-04 14:20:27', 1, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Bibliothèque municipale', 'Bibliothèque Nationale', '09:00:00', '17:00:00'),
+(10, 5, 'Benali', 'Karim', '0634567890', '0645678901', '15', '2025-10-25', '2025-10-26', '2025-10-28', NULL, 'approved', 0, '2025-11-04 14:20:27', 2, 2025, 10, 4, 'urgence', 'Problème dentaire urgent', 'Certificat dentiste', 1, '2025-10-25 10:15:00', 'Soins dentaires d\'urgence', 'Clinique dentaire Smile', '10:00:00', '16:00:00'),
+(11, 4, 'Alaoui', 'Fatima', '0612345678', '0623456789', '12', '2025-10-26', '2025-10-27', '2025-10-29', NULL, 'pending', 0, '2025-11-04 14:20:27', 2, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Séminaire étudiant', 'Université Mohammed V', '08:00:00', '18:00:00'),
+(12, 6, 'Chakir', 'Amina', '0645678901', '0656789012', '8', '2025-10-27', '2025-10-28', '2025-10-29', NULL, 'cancelled', 0, '2025-11-04 14:20:27', 1, 2025, 10, 4, 'normale', NULL, NULL, NULL, NULL, 'Annulé - Empêchement', 'Rabat', '11:00:00', '19:00:00');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `csrf_tokens`
+--
+
+CREATE TABLE `csrf_tokens` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `token` varchar(128) NOT NULL,
+  `created_at` int(11) NOT NULL,
+  `used` tinyint(1) DEFAULT 0,
+  `expires_at` int(11) NOT NULL,
+  `purpose` varchar(50) DEFAULT 'general'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `csrf_tokens`
+--
+
+INSERT INTO `csrf_tokens` (`id`, `user_id`, `token`, `created_at`, `used`, `expires_at`, `purpose`) VALUES
+(1, 2, 'csrf_token_001', 1762264228, 0, 1762269628, 'form_autorisation'),
+(2, 3, 'csrf_token_002', 1762264828, 1, 1762269628, 'form_login'),
+(3, 4, 'csrf_token_003', 1762265428, 0, 1762269628, 'form_profile'),
+(4, 1, 'csrf_token_004', 1762265728, 0, 1762269628, 'form_admin'),
+(5, 5, 'csrf_token_005', 1762263628, 1, 1762269628, 'form_emergency');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `emergency_cases`
+--
+
+CREATE TABLE `emergency_cases` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `nom` varchar(100) NOT NULL,
+  `prenom` varchar(100) NOT NULL,
+  `chambre` varchar(10) NOT NULL,
+  `telephone` varchar(20) NOT NULL,
+  `parent_telephone` varchar(20) NOT NULL,
+  `type_urgence` enum('medical','accident','familial','autre') NOT NULL,
+  `description` text NOT NULL,
+  `ambulance_appelee` tinyint(1) DEFAULT 0,
+  `hopital` varchar(255) DEFAULT NULL,
+  `date_incident` datetime DEFAULT current_timestamp(),
+  `statut` enum('en_cours','resolu','transfere','suivi') DEFAULT 'en_cours',
+  `notes_admin` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `gravite` enum('faible','moyenne','elevee','critique') DEFAULT 'moyenne',
+  `medecin_traitant` varchar(100) DEFAULT NULL,
+  `contact_urgence` varchar(100) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `emergency_cases`
+--
+
+INSERT INTO `emergency_cases` (`id`, `user_id`, `nom`, `prenom`, `chambre`, `telephone`, `parent_telephone`, `type_urgence`, `description`, `ambulance_appelee`, `hopital`, `date_incident`, `statut`, `notes_admin`, `created_at`, `gravite`, `medecin_traitant`, `contact_urgence`) VALUES
+(1, 4, 'Alaoui', 'Fatima', '12', '0612345678', '0623456789', 'medical', 'Malaise et vertiges importants pendant le cours de programmation. Pâleur et faiblesse générale.', 1, 'Hôpital Ibn Sina', '2025-10-25 14:30:00', 'resolu', 'État stable après examen médical. Diagnostic: hypoglycémie. Retour à l\'internat avec recommandations diététiques.', '2025-11-04 14:20:28', 'moyenne', 'Dr. Khadija Alami', 'Père: Ahmed Alaoui - 0623456789'),
+(2, 5, 'Benali', 'Karim', '15', '0634567890', '0645678901', 'accident', 'Chute dans les escaliers du bâtiment B. Douleur intense à la cheville droite, difficulté à marcher.', 1, 'Clinique du Sport Rabat', '2025-10-26 10:15:00', 'en_cours', 'Radiographie effectuée. Attente des résultats. Suspicion d\'entorse avec possible fracture.', '2025-11-04 14:20:28', 'elevee', 'Dr. Michel Bernard', 'Mère: Salima Benali - 0645678901'),
+(3, 6, 'Chakir', 'Amina', '8', '0645678901', '0656789012', 'familial', 'Appel urgent de la famille pour décès du grand-père. État de choc émotionnel, besoin de soutien psychologique.', 0, NULL, '2025-10-27 20:45:00', 'transfere', 'Accompagnée par l\'assistante sociale. Transfert vers la famille à Kénitra. Suivi psychologique recommandé.', '2025-11-04 14:20:28', 'moyenne', NULL, 'Frère: Rachid Chakir - 0656789012'),
+(4, 3, 'Ayoub', 'Amine', '7', '0633549914', '0633549914', 'medical', 'Fortes douleurs abdominales avec fièvre. Symptômes apparus pendant la nuit.', 1, 'CHU Ibn Rochd', '2025-10-28 03:20:00', 'suivi', 'Diagnostic: appendicite aiguë. Intervention chirurgicale programmée. Surveillance post-opératoire.', '2025-11-04 14:20:28', 'critique', 'Dr. Leila Benjelloun', 'Père: Mohammed Ayoub - 0633549914'),
+(5, 9, 'Bennani', 'Samira', '5', '0678901234', '0689012345', 'autre', 'Réaction allergique sévère après repas à la cantine. Œdème et difficultés respiratoires.', 1, 'Hôpital Militaire', '2025-10-24 19:45:00', 'resolu', 'Choc anaphylactique traité avec adrenaline. Allergie aux fruits de mer identifiée. Carnet d\'allergie mis à jour.', '2025-11-04 14:20:28', 'elevee', 'Dr. Ahmed Zeri', 'Mère: Fatima Bennani - 0689012345');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `failed_logins`
+--
+
+CREATE TABLE `failed_logins` (
+  `id` int(11) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `ip_address` varchar(45) NOT NULL,
+  `user_agent` text DEFAULT NULL,
+  `attempt_time` int(11) NOT NULL,
+  `reason` varchar(100) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `failed_logins`
+--
+
+INSERT INTO `failed_logins` (`id`, `email`, `ip_address`, `user_agent`, `attempt_time`, `reason`) VALUES
+(1, 'karim.benali@cmc.ma', '192.168.1.103', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762265728, 'Mot de passe incorrect'),
+(2, 'utilisateur.inconnu@test.com', '192.168.1.200', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 1762264828, 'Compte inexistant'),
+(3, 'admin@cmc-tamsna.ma', '192.168.1.201', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 1762264228, 'Tentative d\'accès non autorisé'),
+(4, 'fatima.alaoui@cmc.ma', '192.168.1.202', 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/537.36', 1762265428, 'Compte temporairement verrouillé'),
+(5, 'test@hacker.com', '192.168.1.203', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762265788, 'Tentative de brute force détectée');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `login_attempts`
+--
+
+CREATE TABLE `login_attempts` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `attempt_time` int(11) NOT NULL,
+  `success` tinyint(1) NOT NULL,
+  `ip_address` varchar(45) NOT NULL,
+  `user_agent` text DEFAULT NULL,
+  `login_method` enum('password','token','auto') DEFAULT 'password'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `login_attempts`
+--
+
+INSERT INTO `login_attempts` (`id`, `user_id`, `attempt_time`, `success`, `ip_address`, `user_agent`, `login_method`) VALUES
+(1, 2, 1762262428, 1, '192.168.1.100', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'password'),
+(2, 3, 1762261228, 1, '192.168.1.101', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 'password'),
+(3, 4, 1762260628, 1, '192.168.1.102', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 'password'),
+(4, NULL, 1762265728, 0, '192.168.1.103', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'password'),
+(5, 1, 1762258828, 1, '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'password'),
+(6, 5, 1762259528, 1, '192.168.1.104', 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/537.36', 'password'),
+(7, 6, 1762260228, 1, '192.168.1.105', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'password');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `print_templates`
+--
+
+CREATE TABLE `print_templates` (
+  `id` int(11) NOT NULL,
+  `nom` varchar(100) NOT NULL,
+  `contenu` text NOT NULL,
+  `est_actif` tinyint(1) DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `print_templates`
+--
+
+INSERT INTO `print_templates` (`id`, `nom`, `contenu`, `est_actif`, `created_at`) VALUES
+(1, 'Modèle Standard', '<!DOCTYPE html>\r\n<html lang=\"fr\">\r\n<head>\r\n    <meta charset=\"UTF-8\">\r\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\r\n    <title>Demande d\'autorisation de sortie OFPPT</title>\r\n    <style>\r\n        /* --- BASE STYLES & CONTAINER --- */\r\n        body {\r\n            font-family: Arial, sans-serif;\r\n            margin: 0;\r\n            padding: 0;\r\n            background-color: #f5f5f5;\r\n            color: #000;\r\n        }\r\n\r\n        .container {\r\n            width: 1100px;\r\n            min-height: 650px;\r\n            margin: 50px auto;\r\n            padding: 50px 80px;\r\n            background-color: #fff;\r\n            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);\r\n            position: relative;\r\n            box-sizing: border-box;\r\n            font-size: 15px;\r\n            line-height: 1.5;\r\n        }\r\n        \r\n        /* Field content styling - NO DOTS when content exists */\r\n        .field-content {\r\n            display: inline-block;\r\n            margin: 0 5px;\r\n            min-width: 50px;\r\n            border-bottom: 1px solid transparent;\r\n        }\r\n        \r\n        .field-content.empty {\r\n            border-bottom: 1px dotted #000;\r\n            min-height: 16px;\r\n        }\r\n\r\n        /* --- HEADER SECTION (LOGOS) --- */\r\n        .header {\r\n            position: relative;\r\n            height: 70px;\r\n            margin-bottom: 40px;\r\n        }\r\n\r\n        /* Left Logo and Text (OFPPT) Container */\r\n        .logo-left {\r\n            position: absolute;\r\n            left: 0;\r\n            top: 0;\r\n            display: flex;\r\n            align-items: center;\r\n            gap: 10px;\r\n        }\r\n        \r\n        .ofppt-logo-img {\r\n            width: 65px;\r\n            height: auto;\r\n            display: block;\r\n        }\r\n\r\n        .ofppt-text-group {\r\n            display: flex;\r\n            align-items: center;\r\n            gap: 10px;\r\n        }\r\n\r\n        .vertical-separator {\r\n            border-left: 1px solid #000;\r\n            height: 50px;\r\n            margin: 0 5px;\r\n        }\r\n\r\n        .ofppt-text {\r\n            line-height: 1.2;\r\n        }\r\n\r\n        .ofppt-text .arabic {\r\n            font-size: 18px;\r\n            font-weight: bold;\r\n            direction: rtl;\r\n            text-align: right;\r\n        }\r\n        \r\n        .ofppt-text .french {\r\n            font-size: 11px;\r\n            font-weight: normal;\r\n            line-height: 1.1;\r\n        }\r\n\r\n        /* Right Logo (CMC/FL) Container */\r\n        .logo-right {\r\n            position: absolute;\r\n            right: 0;\r\n            top: 0;\r\n            width: 280px; \r\n            text-align: right;\r\n        }\r\n        \r\n        .cmc-logo-img {\r\n            width: 80px; \r\n            height: auto;\r\n            display: block;\r\n            float: right;\r\n            margin-bottom: 3px;\r\n        }\r\n\r\n        .cmc-text {\r\n            clear: right; \r\n            padding-top: 5px; \r\n            line-height: 1.2;\r\n        }\r\n        \r\n        .cmc-text div {\r\n            text-align: right;\r\n            margin-bottom: 2px;\r\n        }\r\n        \r\n        .cmc-text .arabic-cmc {\r\n            font-size: 14px;\r\n            font-weight: bold;\r\n            direction: rtl;\r\n        }\r\n        \r\n        .cmc-text .amazigh-cmc {\r\n             font-size: 10px;\r\n             font-weight: normal;\r\n             direction: rtl; \r\n        }\r\n        \r\n        .cmc-text .french-cmc {\r\n             font-size: 10px;\r\n             font-weight: normal;\r\n             direction: ltr;\r\n        }\r\n\r\n        /* --- PERSONAL FIELDS (4 LEFT / 2 RIGHT) --- */\r\n        .fields-section {\r\n            display: flex;\r\n            justify-content: space-between;\r\n            margin-bottom: 40px;\r\n            margin-top: 50px;\r\n        }\r\n\r\n        .fields-left, .fields-right {\r\n            display: flex;\r\n            flex-direction: column;\r\n            gap: 10px;\r\n        }\r\n        \r\n        .field {\r\n            display: flex;\r\n            align-items: baseline;\r\n            white-space: nowrap;\r\n        }\r\n\r\n        /* Line dimensions */\r\n        .w-l { min-width: 400px; }\r\n        .w-m { min-width: 200px; } \r\n        .w-s { min-width: 90px; } \r\n        .w-xs { min-width: 28px; } \r\n\r\n        /* --- CENTRAL RECIPIENT BLOCK --- */\r\n        .recipient-block {\r\n            text-align: center;\r\n            margin-bottom: 40px;\r\n            line-height: 1.4;\r\n            font-size: 16px;\r\n        }\r\n        \r\n        .recipient-block .line-a {\r\n            margin-bottom: 5px;\r\n            font-size: 14px;\r\n        }\r\n        \r\n        .recipient-block .line-manager {\r\n            font-weight: bold;\r\n        }\r\n\r\n        /* --- BODY TEXT --- */\r\n        .body-sections {\r\n            line-height: 1.5;\r\n            padding-top: 20px;\r\n        }\r\n\r\n        .object-line {\r\n            font-weight: bold;\r\n            margin-bottom: 10px;\r\n        }\r\n        \r\n        .monsieur-line {\r\n            margin-bottom: 20px;\r\n        }\r\n        \r\n        .text-flow-container {\r\n            margin-bottom: 30px;\r\n        }\r\n\r\n        /* Motive line */\r\n        .motive-line {\r\n            display: flex;\r\n            align-items: baseline;\r\n            margin-top: 5px;\r\n        }\r\n        \r\n        .motive-line .label {\r\n            white-space: nowrap;\r\n            padding-right: 5px;\r\n        }\r\n        \r\n        .motive-line .full-line {\r\n            flex-grow: 1;\r\n            margin-left: 0;\r\n        }\r\n\r\n        /* Print styles */\r\n        @media print {\r\n            body {\r\n                background: white;\r\n                margin: 0;\r\n                padding: 0;\r\n            }\r\n            .container {\r\n                box-shadow: none;\r\n                margin: 0;\r\n                width: 100%;\r\n                height: 100%;\r\n            }\r\n            .print-controls {\r\n                display: none !important;\r\n            }\r\n        }\r\n\r\n        .print-controls {\r\n            position: fixed;\r\n            top: 20px;\r\n            right: 20px;\r\n            background: #333;\r\n            padding: 10px;\r\n            border-radius: 5px;\r\n            z-index: 1000;\r\n        }\r\n        \r\n        .print-controls button {\r\n            background: #3b82f6;\r\n            color: white;\r\n            border: none;\r\n            padding: 8px 12px;\r\n            margin: 0 3px;\r\n            border-radius: 3px;\r\n            cursor: pointer;\r\n        }\r\n    </style>\r\n</head>\r\n<body>\r\n    <!-- Contrôles d\'impression -->\r\n    <div class=\"print-controls\">\r\n        <button onclick=\"window.print()\">🖨️ Imprimer</button>\r\n        <button onclick=\"window.close()\">❌ Fermer</button>\r\n    </div>\r\n\r\n    <div class=\"container\">\r\n        <div class=\"header\">\r\n            <div class=\"logo-left\">\r\n                <img src=\"{BASE_URL}/assets/images/Logo_ofppt.png\" alt=\"OFPPT Logo\" class=\"ofppt-logo-img\">\r\n                <div class=\"ofppt-text-group\">\r\n                    <span class=\"vertical-separator\"></span>\r\n                    <div class=\"ofppt-text\">\r\n                        <div class=\"arabic\">مكتب التكوين المهني وإنعاش الشغل</div>\r\n                        <div class=\"french\">Office de la Formation Professionnelle</div>\r\n                        <div class=\"french\">et de la Promotion du Travail</div>\r\n                    </div>\r\n                </div>\r\n            </div>\r\n\r\n            <div class=\"logo-right\">\r\n                <img src=\"{BASE_URL}/assets/images/LOGO-CMC.png\" alt=\"CMC Rabat Logo\" class=\"cmc-logo-img\">\r\n                \r\n                <div class=\"cmc-text\">\r\n                    <div class=\"arabic-cmc\">مدن المهن والكفاءات</div>\r\n                    <div class=\"amazigh-cmc\">ⵜⵉⵖⵔⵎⵉⵏ ⵏ ⵜⵎⵖⵓⵏⵉⵏ ⴷ ⵜⵎⴰⵢⵏⵓⵜ</div>\r\n                    <div class=\"french-cmc\">Cités des métiers et des compétences</div>\r\n                </div>\r\n            </div>\r\n        </div>\r\n\r\n        <div class=\"fields-section\">\r\n            <div class=\"fields-left\">\r\n                <div class=\"field\">\r\n                    Nom et Prénom : <span class=\"field-content w-l {NOM_PRENOM_CLASS}\">{NOM_PRENOM}</span>\r\n                </div>\r\n                <div class=\"field\">\r\n                    Filière : <span class=\"field-content w-m {FILIERE_CLASS}\">{FILIERE}</span> groupe : <span class=\"field-content w-s {GROUPE_CLASS}\">{GROUPE}</span>\r\n                </div>\r\n                <div class=\"field\">\r\n                    Tél : <span class=\"field-content w-l {TELEPHONE_CLASS}\">{TELEPHONE}</span>\r\n                </div>\r\n                <div class=\"field\">\r\n                    Tél du tuteur : <span class=\"field-content w-l {TELEPHONE_TUTEUR_CLASS}\">{TELEPHONE_TUTEUR}</span>\r\n                </div>\r\n            </div>\r\n            \r\n            <div class=\"fields-right\">\r\n                <div class=\"field\">\r\n                    Date-le : <span class=\"field-content w-xs {DATE_GENERATION_CLASS}\">{DATE_GENERATION}</span>\r\n                </div>\r\n                <div class=\"field\">\r\n                    N° Chambre : <span class=\"field-content w-m {CHAMBRE_CLASS}\">{CHAMBRE}</span>\r\n                </div>\r\n            </div>\r\n        </div>\r\n\r\n        <div class=\"recipient-block\">\r\n            <div class=\"line-a\">A</div>\r\n            <div class=\"line-manager\">M le Gestionnaire D\'internat</div>\r\n            <div class=\"line-manager\">De la <strong>CMC Rabat</strong>.</div>\r\n        </div>\r\n\r\n        <div class=\"body-sections\">\r\n            <div class=\"object-line\">\r\n                <strong>Objet : Demande d\'autorisation de sortie</strong>\r\n            </div>\r\n            <div class=\"monsieur-line\">\r\n                Monsieur\r\n            </div>\r\n            <div class=\"text-flow-container\">\r\n                J\'ai l\'honneur par la présente demande, de vous informer que je vais sortir de l\'internat\r\n                <br>\r\n                Le <strong>{DATE_DEPART}</strong> et arriver le <strong>{DATE_RETOUR}</strong>. Et que j\'assume ma responsabilité pendant cette période.\r\n            </div>\r\n            \r\n            <div class=\"motive-line\">\r\n                <span class=\"label\">Motif de la demande</span> : <span class=\"field-content full-line {MOTIF_CLASS}\">{MOTIF}</span>\r\n            </div>\r\n        </div>\r\n    </div>\r\n\r\n    <script>\r\n        window.onload = function() {\r\n            setTimeout(function() {\r\n                window.print();\r\n            }, 500);\r\n        };\r\n\r\n        document.addEventListener(\'keydown\', function(e) {\r\n            if (e.ctrlKey && e.key === \'p\') {\r\n                e.preventDefault();\r\n                window.print();\r\n            }\r\n            if (e.key === \'Escape\') {\r\n                window.close();\r\n            }\r\n        });\r\n    </script>\r\n</body>\r\n</html>', 1, '2025-10-22 09:24:35');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `security_logs`
+--
+
+CREATE TABLE `security_logs` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `action` varchar(255) NOT NULL,
+  `type` enum('LOGIN','LOGOUT','REGISTER','AUTH_REQUEST','ADMIN_ACTION','SECURITY','SYSTEM') NOT NULL,
+  `ip_address` varchar(45) NOT NULL,
+  `user_agent` text DEFAULT NULL,
+  `timestamp` int(11) NOT NULL,
+  `details` text DEFAULT NULL,
+  `severity` enum('low','medium','high','critical') DEFAULT 'medium'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `security_logs`
+--
+
+INSERT INTO `security_logs` (`id`, `user_id`, `action`, `type`, `ip_address`, `user_agent`, `timestamp`, `details`, `severity`) VALUES
+(1, 1, 'Connexion administrateur', 'LOGIN', '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762262428, 'Connexion depuis le réseau local sécurisé', 'low'),
+(2, 2, 'Demande d\'autorisation normale', 'AUTH_REQUEST', '192.168.1.100', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762258828, 'ID Autorisation: 1 - Statut: approved', 'low'),
+(3, 1, 'Approbation urgence médicale', 'ADMIN_ACTION', '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762264228, 'Urgence approuvée pour Fatima Alaoui - ID: 4', 'medium'),
+(4, 3, 'Tentative de réinitialisation mot de passe', 'SECURITY', '192.168.1.101', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 1762263628, 'Demande légitime - Email de réinitialisation envoyé', 'medium'),
+(5, NULL, 'Tentative d\'accès non autorisé', 'SECURITY', '192.168.1.200', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762265128, 'IP bloquée après 3 tentatives de connexion échouées', 'high'),
+(6, 1, 'Modification template d\'impression', 'ADMIN_ACTION', '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762261828, 'Template standard mis à jour avec nouveau format', 'low'),
+(7, 4, 'Déconnexion utilisateur', 'LOGOUT', '192.168.1.102', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 1762264528, 'Session fermée après 2 heures d\'inactivité', 'low'),
+(8, 1, 'Suspension de compte utilisateur', 'ADMIN_ACTION', '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762257528, 'Utilisateur Omar Khalil suspendu pour non-respect du règlement', 'high'),
+(9, 1, 'Impression autorisation #1 pour Mohammed El Mahdi Daifi', '', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36', 1762266345, NULL, 'medium'),
+(10, 1, 'Nouvelle visite médicale ajoutée pour l\'utilisateur #2', '', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36', 1762270718, NULL, 'medium'),
+(11, 1, 'Impression autorisation #1 pour Mohammed El Mahdi Daifi', '', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36', 1762271093, NULL, 'medium'),
+(12, 1, 'Impression autorisation #4 pour Fatima Alaoui', '', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36', 1762271408, NULL, 'medium'),
+(13, 1, 'Impression autorisation #4 pour Fatima Alaoui', '', '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36', 1762272002, NULL, 'medium'),
+(14, 1, 'Impression autorisation #1 pour Mohammed El Mahdi Daifi', '', '10.33.26.107', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36', 1762273895, NULL, 'medium');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `sessions`
+--
+
+CREATE TABLE `sessions` (
+  `id` int(11) NOT NULL,
+  `autorisation_id` int(11) DEFAULT NULL,
+  `date_session` date NOT NULL,
+  `heure_max` time NOT NULL,
+  `status` enum('active','expired','completed') DEFAULT 'active',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `notes` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `sessions`
+--
+
+INSERT INTO `sessions` (`id`, `autorisation_id`, `date_session`, `heure_max`, `status`, `created_at`, `notes`) VALUES
+(1, 1, '2025-10-29', '22:00:00', 'active', '2025-11-04 14:20:28', 'Sortie autorisée pour visite familiale'),
+(2, 3, '2025-10-28', '23:00:00', 'completed', '2025-11-04 14:20:28', 'Retour dans les délais - pointage effectué'),
+(3, 4, '2025-10-23', '21:30:00', 'expired', '2025-11-04 14:20:28', 'Session expirée - retour en attente'),
+(4, 5, '2025-10-21', '20:00:00', 'completed', '2025-11-04 14:20:28', 'Sortie shopping - retour validé'),
+(5, 9, '2025-10-25', '22:30:00', 'active', '2025-11-04 14:20:28', 'Bibliothèque - retour prévu à 17h00');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `session_data`
+--
+
+CREATE TABLE `session_data` (
+  `id` int(11) NOT NULL,
+  `session_id` varchar(128) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `ip_address` varchar(45) NOT NULL,
+  `user_agent` text DEFAULT NULL,
+  `login_time` int(11) NOT NULL,
+  `last_activity` int(11) NOT NULL,
+  `is_active` tinyint(1) DEFAULT 1,
+  `session_data` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `session_data`
+--
+
+INSERT INTO `session_data` (`id`, `session_id`, `user_id`, `ip_address`, `user_agent`, `login_time`, `last_activity`, `is_active`, `session_data`) VALUES
+(1, 'session_001', 2, '192.168.1.100', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762262428, 1762265728, 1, '{\"last_page\": \"/dashboard\", \"theme\": \"light\"}'),
+(2, 'session_002', 3, '192.168.1.101', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 1762258828, 1762265428, 1, '{\"last_page\": \"/autorisations\", \"theme\": \"dark\"}'),
+(3, 'session_003', 4, '192.168.1.102', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 1762264228, 1762265908, 1, '{\"last_page\": \"/profile\", \"theme\": \"light\"}'),
+(4, 'session_004', 1, '192.168.1.50', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 1762265128, 1762265968, 1, '{\"last_page\": \"/admin\", \"theme\": \"light\"}'),
+(5, 'session_005', 5, '192.168.1.104', 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/537.36', 1762259528, 1762264228, 0, '{\"last_page\": \"/emergency\", \"theme\": \"auto\"}');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `users`
+--
+
+CREATE TABLE `users` (
+  `id` int(11) NOT NULL,
+  `nom` varchar(100) NOT NULL,
+  `prenom` varchar(100) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `telephone` varchar(20) DEFAULT NULL,
+  `chambre` varchar(10) DEFAULT NULL,
+  `parent_telephone` varchar(20) DEFAULT NULL,
+  `role` enum('user','admin','supervisor') DEFAULT 'user',
+  `status` enum('pending','active','rejected','suspended') DEFAULT 'pending',
+  `token` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `last_login` int(11) DEFAULT NULL,
+  `login_attempts` int(11) DEFAULT 0,
+  `locked_until` int(11) DEFAULT NULL,
+  `two_factor_secret` varchar(255) DEFAULT NULL,
+  `backup_codes` text DEFAULT NULL,
+  `filiere` varchar(100) DEFAULT NULL,
+  `groupe` varchar(50) DEFAULT NULL,
+  `date_naissance` date DEFAULT NULL,
+  `lieu_naissance` varchar(100) DEFAULT NULL,
+  `cin` varchar(20) DEFAULT NULL,
+  `adresse` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `users`
+--
+
+INSERT INTO `users` (`id`, `nom`, `prenom`, `email`, `password`, `telephone`, `chambre`, `parent_telephone`, `role`, `status`, `token`, `created_at`, `updated_at`, `last_login`, `login_attempts`, `locked_until`, `two_factor_secret`, `backup_codes`, `filiere`, `groupe`, `date_naissance`, `lieu_naissance`, `cin`, `adresse`) VALUES
+(1, 'Admin', 'System', 'admin@cmc-tamsna.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0612345678', NULL, NULL, 'admin', 'active', NULL, '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, NULL, NULL, '1990-01-15', 'Rabat', 'AB123456', 'CMC Tamsna, Rabat'),
+(2, 'Daifi', 'Mohammed El Mahdi', 'mahdi.daifi@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0600000000', '7', '0700000000', 'user', 'active', 'token_mahdi', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Développement Digital', 'DD101', '2002-05-20', 'Casablanca', 'CD789012', '123 Rue Mohammed V, Casablanca'),
+(3, 'Ayoub', 'Amine', 'amine.ayoub@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0633549914', '7', '0633549914', 'user', 'active', 'token_amine', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Développement Digital', 'DD101', '2001-08-12', 'Rabat', 'EF345678', '45 Avenue Hassan II, Rabat'),
+(4, 'Alaoui', 'Fatima', 'fatima.alaoui@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0612345678', '12', '0623456789', 'user', 'active', 'token_fatima', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Infrastructure Digital', 'ID102', '2003-02-28', 'Salé', 'GH901234', '78 Boulevard Mohammed VI, Salé'),
+(5, 'Benali', 'Karim', 'karim.benali@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0634567890', '15', '0645678901', 'user', 'active', 'token_karim', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Marketing Digital', 'MD103', '2002-11-15', 'Témara', 'IJ567890', '12 Rue Palestine, Témara'),
+(6, 'Chakir', 'Amina', 'amina.chakir@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0645678901', '8', '0656789012', 'user', 'active', 'token_amina', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Gestion des Entreprises', 'GE104', '2001-12-03', 'Kénitra', 'KL123456', '34 Avenue Al Massira, Kénitra'),
+(7, 'Daoudi', 'Youssef', 'youssef.daoudi@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0656789012', '22', '0667890123', 'user', 'pending', 'token_youssef', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Commerce Digital', 'CD105', '2003-07-22', 'Meknès', 'MN789012', '56 Rue Sultan Moulay Ismail, Meknès'),
+(8, 'El Fassi', 'Hassan', 'hassan.elfassi@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0667890123', '18', '0678901234', 'user', 'active', 'token_hassan', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Développement Digital', 'DD102', '2002-09-08', 'Fès', 'OP345678', '89 Avenue Hassan I, Fès'),
+(9, 'Bennani', 'Samira', 'samira.bennani@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0678901234', '5', '0689012345', 'user', 'active', 'token_samira', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Infrastructure Digital', 'ID101', '2001-04-17', 'Tanger', 'QR901234', '23 Rue de la Liberté, Tanger'),
+(10, 'Khalil', 'Omar', 'omar.khalil@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0689012345', '14', '0690123456', 'user', 'suspended', 'token_omar', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Marketing Digital', 'MD102', '2003-01-30', 'Agadir', 'ST567890', '67 Boulevard Mohammed V, Agadir'),
+(11, 'Mansouri', 'Leila', 'leila.mansouri@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0690123456', '9', '0601234567', 'supervisor', 'active', 'token_leila', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Gestion des Entreprises', 'GE101', '2000-06-14', 'Marrakech', 'UV123456', '41 Rue Ibn Aicha, Marrakech'),
+(12, 'Rahmani', 'Mehdi', 'mehdi.rahmani@cmc.ma', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '0601234567', '25', '0612345670', 'user', 'rejected', 'token_mehdi', '2025-11-04 14:20:26', '2025-11-04 14:20:26', NULL, 0, NULL, NULL, NULL, 'Commerce Digital', 'CD101', '2002-03-25', 'Oujda', 'WX789012', '15 Avenue Al Amir, Oujda'),
+(13, 'Herrira', 'Jackyy', 'tankgrenade@gmail.com', '$2y$10$liFXWfefHcJarwfKU/APbOssBawSmnQEiDjv1fomB13jXSI1xctY6', '0602356651', '11', '0000000000', 'user', 'pending', '18b34a5c6651876c36b319f2955e1577f2ee8bde12129fa1fc511bd6723ed4cd', '2025-11-04 15:39:55', '2025-11-04 15:39:55', NULL, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `visites_medicales`
+--
+
+CREATE TABLE `visites_medicales` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `type_visite` varchar(100) NOT NULL,
+  `medecin` varchar(100) NOT NULL,
+  `lieu` varchar(100) NOT NULL,
+  `diagnostic` text DEFAULT NULL,
+  `traitement` text DEFAULT NULL,
+  `date_visite` date NOT NULL,
+  `heure_visite` time NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `visites_medicales`
+--
+
+INSERT INTO `visites_medicales` (`id`, `user_id`, `type_visite`, `medecin`, `lieu`, `diagnostic`, `traitement`, `date_visite`, `heure_visite`, `created_at`) VALUES
+(1, 2, 'consultation', 'mohammed', 'infermerie', 'test', 'test', '2025-11-04', '16:38:00', '2025-11-04 15:38:38');
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `vue_autorisations_actives`
+-- (See below for the actual view)
+--
+CREATE TABLE `vue_autorisations_actives` (
+`id` int(11)
+,`user_id` int(11)
+,`nom` varchar(100)
+,`prenom` varchar(100)
+,`telephone` varchar(20)
+,`parent_telephone` varchar(20)
+,`chambre` varchar(10)
+,`date_demande` date
+,`date_depart` date
+,`date_retour` date
+,`signature` text
+,`status` enum('pending','approved','rejected','completed','expired','cancelled')
+,`pointage` tinyint(1)
+,`created_at` timestamp
+,`duree_jours` int(11)
+,`annee` int(11)
+,`mois` int(11)
+,`trimestre` int(11)
+,`type_autorisation` enum('normale','urgence')
+,`motif_urgence` text
+,`justificatif_urgence` text
+,`urgence_approuvee_par` int(11)
+,`date_urgence` datetime
+,`motif_demande` text
+,`destination` varchar(255)
+,`heure_depart` time
+,`heure_retour` time
+,`filiere` varchar(100)
+,`groupe` varchar(50)
+,`duree_calculée` int(7)
+);
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `vue_statistiques_urgences`
+-- (See below for the actual view)
+--
+CREATE TABLE `vue_statistiques_urgences` (
+`mois` int(2)
+,`annee` int(4)
+,`type_urgence` enum('medical','accident','familial','autre')
+,`nombre_cas` bigint(21)
+,`taux_resolution` decimal(4,4)
+);
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `vue_utilisateurs_actifs`
+-- (See below for the actual view)
+--
+CREATE TABLE `vue_utilisateurs_actifs` (
+`id` int(11)
+,`nom` varchar(100)
+,`prenom` varchar(100)
+,`email` varchar(255)
+,`password` varchar(255)
+,`telephone` varchar(20)
+,`chambre` varchar(10)
+,`parent_telephone` varchar(20)
+,`role` enum('user','admin','supervisor')
+,`status` enum('pending','active','rejected','suspended')
+,`token` varchar(100)
+,`created_at` timestamp
+,`updated_at` timestamp
+,`last_login` int(11)
+,`login_attempts` int(11)
+,`locked_until` int(11)
+,`two_factor_secret` varchar(255)
+,`backup_codes` text
+,`filiere` varchar(100)
+,`groupe` varchar(50)
+,`date_naissance` date
+,`lieu_naissance` varchar(100)
+,`cin` varchar(20)
+,`adresse` text
+,`total_autorisations` bigint(21)
+,`derniere_demande` timestamp
+);
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `vue_autorisations_actives`
+--
+DROP TABLE IF EXISTS `vue_autorisations_actives`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `vue_autorisations_actives`  AS SELECT `a`.`id` AS `id`, `a`.`user_id` AS `user_id`, `a`.`nom` AS `nom`, `a`.`prenom` AS `prenom`, `a`.`telephone` AS `telephone`, `a`.`parent_telephone` AS `parent_telephone`, `a`.`chambre` AS `chambre`, `a`.`date_demande` AS `date_demande`, `a`.`date_depart` AS `date_depart`, `a`.`date_retour` AS `date_retour`, `a`.`signature` AS `signature`, `a`.`status` AS `status`, `a`.`pointage` AS `pointage`, `a`.`created_at` AS `created_at`, `a`.`duree_jours` AS `duree_jours`, `a`.`annee` AS `annee`, `a`.`mois` AS `mois`, `a`.`trimestre` AS `trimestre`, `a`.`type_autorisation` AS `type_autorisation`, `a`.`motif_urgence` AS `motif_urgence`, `a`.`justificatif_urgence` AS `justificatif_urgence`, `a`.`urgence_approuvee_par` AS `urgence_approuvee_par`, `a`.`date_urgence` AS `date_urgence`, `a`.`motif_demande` AS `motif_demande`, `a`.`destination` AS `destination`, `a`.`heure_depart` AS `heure_depart`, `a`.`heure_retour` AS `heure_retour`, `u`.`filiere` AS `filiere`, `u`.`groupe` AS `groupe`, to_days(`a`.`date_retour`) - to_days(`a`.`date_depart`) AS `duree_calculée` FROM (`autorisations` `a` join `users` `u` on(`a`.`user_id` = `u`.`id`)) WHERE `a`.`status` in ('approved','pending') AND `a`.`date_retour` >= curdate() ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `vue_statistiques_urgences`
+--
+DROP TABLE IF EXISTS `vue_statistiques_urgences`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `vue_statistiques_urgences`  AS SELECT month(`emergency_cases`.`date_incident`) AS `mois`, year(`emergency_cases`.`date_incident`) AS `annee`, `emergency_cases`.`type_urgence` AS `type_urgence`, count(0) AS `nombre_cas`, avg(case when `emergency_cases`.`statut` = 'resolu' then 1 else 0 end) AS `taux_resolution` FROM `emergency_cases` GROUP BY year(`emergency_cases`.`date_incident`), month(`emergency_cases`.`date_incident`), `emergency_cases`.`type_urgence` ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `vue_utilisateurs_actifs`
+--
+DROP TABLE IF EXISTS `vue_utilisateurs_actifs`;
+
+CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `vue_utilisateurs_actifs`  AS SELECT `u`.`id` AS `id`, `u`.`nom` AS `nom`, `u`.`prenom` AS `prenom`, `u`.`email` AS `email`, `u`.`password` AS `password`, `u`.`telephone` AS `telephone`, `u`.`chambre` AS `chambre`, `u`.`parent_telephone` AS `parent_telephone`, `u`.`role` AS `role`, `u`.`status` AS `status`, `u`.`token` AS `token`, `u`.`created_at` AS `created_at`, `u`.`updated_at` AS `updated_at`, `u`.`last_login` AS `last_login`, `u`.`login_attempts` AS `login_attempts`, `u`.`locked_until` AS `locked_until`, `u`.`two_factor_secret` AS `two_factor_secret`, `u`.`backup_codes` AS `backup_codes`, `u`.`filiere` AS `filiere`, `u`.`groupe` AS `groupe`, `u`.`date_naissance` AS `date_naissance`, `u`.`lieu_naissance` AS `lieu_naissance`, `u`.`cin` AS `cin`, `u`.`adresse` AS `adresse`, count(`a`.`id`) AS `total_autorisations`, max(`a`.`created_at`) AS `derniere_demande` FROM (`users` `u` left join `autorisations` `a` on(`u`.`id` = `a`.`user_id`)) WHERE `u`.`status` = 'active' GROUP BY `u`.`id` ;
+
+--
+-- Indexes for dumped tables
+--
+
+--
+-- Indexes for table `activity_logs`
+--
+ALTER TABLE `activity_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user_timestamp` (`user_id`,`timestamp`),
+  ADD KEY `idx_type_timestamp` (`type`,`timestamp`);
+
+--
+-- Indexes for table `autorisations`
+--
+ALTER TABLE `autorisations`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `user_id` (`user_id`),
+  ADD KEY `urgence_approuvee_par` (`urgence_approuvee_par`),
+  ADD KEY `idx_date_depart` (`date_depart`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_type_autorisation` (`type_autorisation`),
+  ADD KEY `idx_autorisations_dates` (`date_depart`,`date_retour`),
+  ADD KEY `idx_autorisations_user_status` (`user_id`,`status`,`created_at`);
+
+--
+-- Indexes for table `csrf_tokens`
+--
+ALTER TABLE `csrf_tokens`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_token` (`token`),
+  ADD KEY `idx_user_created` (`user_id`,`created_at`);
+
+--
+-- Indexes for table `emergency_cases`
+--
+ALTER TABLE `emergency_cases`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `user_id` (`user_id`),
+  ADD KEY `idx_emergency_statut` (`statut`,`date_incident`);
+
+--
+-- Indexes for table `failed_logins`
+--
+ALTER TABLE `failed_logins`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_email_time` (`email`,`attempt_time`),
+  ADD KEY `idx_ip_time` (`ip_address`,`attempt_time`);
+
+--
+-- Indexes for table `login_attempts`
+--
+ALTER TABLE `login_attempts`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user_time` (`user_id`,`attempt_time`),
+  ADD KEY `idx_ip_time` (`ip_address`,`attempt_time`);
+
+--
+-- Indexes for table `print_templates`
+--
+ALTER TABLE `print_templates`
+  ADD PRIMARY KEY (`id`);
+
+--
+-- Indexes for table `security_logs`
+--
+ALTER TABLE `security_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user_timestamp` (`user_id`,`timestamp`),
+  ADD KEY `idx_type_timestamp` (`type`,`timestamp`),
+  ADD KEY `idx_ip_timestamp` (`ip_address`,`timestamp`);
+
+--
+-- Indexes for table `sessions`
+--
+ALTER TABLE `sessions`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `autorisation_id` (`autorisation_id`);
+
+--
+-- Indexes for table `session_data`
+--
+ALTER TABLE `session_data`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `unique_session` (`session_id`),
+  ADD KEY `idx_user_active` (`user_id`,`is_active`),
+  ADD KEY `idx_last_activity` (`last_activity`);
+
+--
+-- Indexes for table `users`
+--
+ALTER TABLE `users`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `email` (`email`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_email_status` (`email`,`status`),
+  ADD KEY `idx_filiere_groupe` (`filiere`,`groupe`),
+  ADD KEY `idx_users_filiere_groupe` (`filiere`,`groupe`,`status`);
+
+--
+-- Indexes for table `visites_medicales`
+--
+ALTER TABLE `visites_medicales`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `user_id` (`user_id`);
+
+--
+-- AUTO_INCREMENT for dumped tables
+--
+
+--
+-- AUTO_INCREMENT for table `activity_logs`
+--
+ALTER TABLE `activity_logs`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+
+--
+-- AUTO_INCREMENT for table `autorisations`
+--
+ALTER TABLE `autorisations`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+
+--
+-- AUTO_INCREMENT for table `csrf_tokens`
+--
+ALTER TABLE `csrf_tokens`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT for table `emergency_cases`
+--
+ALTER TABLE `emergency_cases`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT for table `failed_logins`
+--
+ALTER TABLE `failed_logins`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT for table `login_attempts`
+--
+ALTER TABLE `login_attempts`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+
+--
+-- AUTO_INCREMENT for table `print_templates`
+--
+ALTER TABLE `print_templates`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
+-- AUTO_INCREMENT for table `security_logs`
+--
+ALTER TABLE `security_logs`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
+
+--
+-- AUTO_INCREMENT for table `sessions`
+--
+ALTER TABLE `sessions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT for table `session_data`
+--
+ALTER TABLE `session_data`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT for table `users`
+--
+ALTER TABLE `users`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+
+--
+-- AUTO_INCREMENT for table `visites_medicales`
+--
+ALTER TABLE `visites_medicales`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
+-- Constraints for dumped tables
+--
+
+--
+-- Constraints for table `activity_logs`
+--
+ALTER TABLE `activity_logs`
+  ADD CONSTRAINT `activity_logs_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `autorisations`
+--
+ALTER TABLE `autorisations`
+  ADD CONSTRAINT `autorisations_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `autorisations_ibfk_2` FOREIGN KEY (`urgence_approuvee_par`) REFERENCES `users` (`id`);
+
+--
+-- Constraints for table `csrf_tokens`
+--
+ALTER TABLE `csrf_tokens`
+  ADD CONSTRAINT `csrf_tokens_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `emergency_cases`
+--
+ALTER TABLE `emergency_cases`
+  ADD CONSTRAINT `emergency_cases_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `login_attempts`
+--
+ALTER TABLE `login_attempts`
+  ADD CONSTRAINT `login_attempts_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `security_logs`
+--
+ALTER TABLE `security_logs`
+  ADD CONSTRAINT `security_logs_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `sessions`
+--
+ALTER TABLE `sessions`
+  ADD CONSTRAINT `sessions_ibfk_1` FOREIGN KEY (`autorisation_id`) REFERENCES `autorisations` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `session_data`
+--
+ALTER TABLE `session_data`
+  ADD CONSTRAINT `session_data_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `visites_medicales`
+--
+ALTER TABLE `visites_medicales`
+  ADD CONSTRAINT `visites_medicales_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
