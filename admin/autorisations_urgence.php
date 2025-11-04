@@ -128,7 +128,7 @@ $autorisations_urgence = $pdo->query($urgences_sql)->fetchAll(PDO::FETCH_ASSOC);
         <div class="container mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
                 <div class="flex items-center space-x-3">
-                    <a href="index.php" class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center hover:scale-110 transition">
+                    <a href="gestion_autorisations.php" class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center hover:scale-110 transition">
                         <i class="fas fa-arrow-left text-red-400 text-xl"></i>
                     </a>
                     <div>
@@ -137,9 +137,11 @@ $autorisations_urgence = $pdo->query($urgences_sql)->fetchAll(PDO::FETCH_ASSOC);
                     </div>
                 </div>
                 <nav class="flex space-x-2">
-                    <a href="index.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Dashboard</a>
-                    <a href="urgence_autorisations.php" class="bg-red-500/20 text-white px-4 py-2 rounded-xl">Urgences</a>
-                    <a href="emergency.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Cas Médicaux</a>
+                    <a href="gestion_autorisations.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Accueil</a>
+                    <a href="autorisations_normales.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Normales</a>
+                    <a href="autorisations_urgence.php" class="bg-red-500/20 text-white px-4 py-2 rounded-xl">Urgences</a>
+                    <a href="cas_medicaux.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Médicaux</a>
+                    <a href="statistiques_medicales.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Statistiques</a>
                 </nav>
             </div>
         </div>
@@ -443,4 +445,3 @@ if (!empty($users)) {
     echo '</div>';
 }
 ?>
- 

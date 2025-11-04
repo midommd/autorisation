@@ -14,7 +14,7 @@ if (isset($_GET['resoudre'])) {
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$urgence_id]);
     log_activity($_SESSION['user_id'], "Cas d'urgence #$urgence_id résolu", 'EMERGENCY_RESOLVED');
-    header('Location: emergency.php?success=Cas résolu');
+    header('Location: cas_medicaux.php?success=Cas résolu');
     exit;
 }
 
@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajouter_urgence'])) {
     $stmt = $pdo->prepare($sql);
     if ($stmt->execute([$nom, $prenom, $chambre, $telephone, $parent_telephone, $type_urgence, $description, $ambulance_appelee, $hopital])) {
         log_activity($_SESSION['user_id'], "Nouveau cas d'urgence: $prenom $nom", 'EMERGENCY_ADDED');
-        header('Location: emergency.php?success=Cas d\'urgence ajouté');
+        header('Location: cas_medicaux.php?success=Cas d\'urgence ajouté');
         exit;
     }
 }
@@ -55,7 +55,7 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cas d'Urgence - CMC Tamsna</title>
+    <title>Cas Médicaux - CMC Tamsna</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -76,19 +76,20 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
         <div class="container mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
                 <div class="flex items-center space-x-3">
-                    <a href="index.php" class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center hover:scale-110 transition">
+                    <a href="gestion_autorisations.php" class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center hover:scale-110 transition">
                         <i class="fas fa-arrow-left text-red-400 text-xl"></i>
                     </a>
                     <div>
-                        <h1 class="text-white font-bold text-xl">Gestion des Urgences</h1>
-                        <p class="text-gray-400 text-sm">Cas médicaux et situations d'urgence</p>
+                        <h1 class="text-white font-bold text-xl">Cas Médicaux d'Urgence</h1>
+                        <p class="text-gray-400 text-sm">Gestion des urgences médicales et accidents</p>
                     </div>
                 </div>
                 <nav class="flex space-x-2">
-                    <a href="index.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Dashboard</a>
-                    <a href="users.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Utilisateurs</a>
-                    <a href="emergency.php" class="bg-red-500/20 text-white px-4 py-2 rounded-xl">Urgences</a>
-                    <a href="reports.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Rapports</a>
+                    <a href="gestion_autorisations.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Accueil</a>
+                    <a href="autorisations_normales.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Normales</a>
+                    <a href="autorisations_urgence.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Urgences</a>
+                    <a href="cas_medicaux.php" class="bg-orange-500/20 text-white px-4 py-2 rounded-xl">Médicaux</a>
+                    <a href="statistiques_medicales.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Statistiques</a>
                 </nav>
             </div>
         </div>
@@ -106,7 +107,7 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
                         <i class="fas fa-exclamation-triangle text-red-400 text-xl"></i>
                     </div>
                     <div>
-                        <h3 class="text-white font-bold text-lg">Alertes Urgentes Actives</h3>
+                        <h3 class="text-white font-bold text-lg">Alertes Médicales Actives</h3>
                         <p class="text-gray-400"><?php echo count($urgences_actives); ?> cas nécessitent une attention immédiate</p>
                     </div>
                 </div>
@@ -120,7 +121,7 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
         <!-- Formulaire d'ajout d'urgence -->
         <div class="glass-effect rounded-2xl p-6 mb-6">
             <h2 class="text-xl font-bold text-white mb-4">
-                <i class="fas fa-plus-circle mr-2"></i>Nouveau Cas d'Urgence
+                <i class="fas fa-plus-circle mr-2"></i>Nouveau Cas Médical
             </h2>
             <form method="POST" class="grid md:grid-cols-2 gap-4">
                 <div>
@@ -146,8 +147,10 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
                 <div>
                     <label class="text-white text-sm font-medium mb-2 block">Type d'urgence *</label>
                     <select name="type_urgence" required class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white">
-                        <option value="medical">Médical</option>
+                        <option value="medical">Urgence Médicale</option>
                         <option value="accident">Accident</option>
+                        <option value="malaise">Malaise</option>
+                        <option value="blessure">Blessure</option>
                         <option value="autre">Autre</option>
                     </select>
                 </div>
@@ -164,8 +167,8 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
                     <input type="text" name="hopital" class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white">
                 </div>
                 <div class="md:col-span-2">
-                    <button type="submit" name="ajouter_urgence" class="bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600 transition font-semibold">
-                        <i class="fas fa-save mr-2"></i>Enregistrer le Cas
+                    <button type="submit" name="ajouter_urgence" class="bg-orange-500 text-white px-6 py-3 rounded-lg hover:bg-orange-600 transition font-semibold">
+                        <i class="fas fa-save mr-2"></i>Enregistrer le Cas Médical
                     </button>
                 </div>
             </form>
@@ -174,7 +177,7 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
         <!-- Liste des urgences -->
         <div class="glass-effect rounded-2xl p-6">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold text-white">Cas d'Urgence</h2>
+                <h2 class="text-xl font-bold text-white">Cas Médicaux Enregistrés</h2>
                 <div class="flex space-x-2">
                     <a href="?filter=en_cours" class="<?php echo $filter === 'en_cours' ? 'bg-red-500 text-white' : 'bg-white/10 text-gray-300'; ?> px-4 py-2 rounded-lg">En Cours</a>
                     <a href="?filter=resolus" class="<?php echo $filter === 'resolus' ? 'bg-green-500 text-white' : 'bg-white/10 text-gray-300'; ?> px-4 py-2 rounded-lg">Résolus</a>
@@ -185,7 +188,7 @@ $urgences = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
             <?php if (empty($urgences)): ?>
                 <div class="text-center py-12 text-gray-400">
                     <i class="fas fa-heartbeat text-4xl mb-4"></i>
-                    <p>Aucun cas d'urgence enregistré</p>
+                    <p>Aucun cas médical enregistré</p>
                 </div>
             <?php else: ?>
                 <div class="space-y-4">

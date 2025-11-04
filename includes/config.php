@@ -3,7 +3,7 @@ session_start();
 
 // Configuration de la base de données
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'cmc_tamsna_auth');
+define('DB_NAME', 'cmc_tamsna_auth_test');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 

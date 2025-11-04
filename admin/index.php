@@ -14,7 +14,8 @@ $stats_sql = "
         SUM(CASE WHEN u.status = 'pending' THEN 1 ELSE 0 END) as pending_users,
         COUNT(DISTINCT a.id) as total_autorisations,
         SUM(CASE WHEN a.status = 'pending' THEN 1 ELSE 0 END) as pending_autorisations,
-        SUM(CASE WHEN a.status = 'approved' AND a.pointage = 0 AND a.date_retour < CURDATE() THEN 1 ELSE 0 END) as retards
+        SUM(CASE WHEN a.status = 'approved' AND a.pointage = 0 AND a.date_retour < CURDATE() THEN 1 ELSE 0 END) as retards,
+        (SELECT COUNT(*) FROM emergency_cases WHERE statut = 'en_cours') as urgences_medicales
     FROM users u 
     LEFT JOIN autorisations a ON u.id = a.user_id
     WHERE u.role = 'user'
@@ -81,10 +82,10 @@ $recent_autorisations = $pdo->query($recent_auth_sql)->fetchAll(PDO::FETCH_ASSOC
                 <nav class="flex space-x-2">
                     <a href="index.php" class="bg-red-500/20 text-white px-4 py-2 rounded-xl">Tableau de Bord</a>
                     <a href="users.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Utilisateurs</a>
-                    <a href="approvals.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Autorisations</a>
+                    <a href="gestion_autorisations.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Autorisations</a>
                     <a href="reports.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Rapports</a>
-                    <a href="urgence_autorisations.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">
-                        <i class="fas fa-bolt mr-2"></i>Urgences
+                    <a href="statistiques_medicales.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">
+                        <i class="fas fa-chart-bar mr-2"></i>Statistiques
                     </a>
                     <a href="../auth/logout.php" class="text-gray-400 hover:bg-red-500/20 px-4 py-2 rounded-xl transition">
                         <i class="fas fa-sign-out-alt"></i>
@@ -96,8 +97,8 @@ $recent_autorisations = $pdo->query($recent_auth_sql)->fetchAll(PDO::FETCH_ASSOC
 
     <div class="container mx-auto px-6 py-8">
         <!-- Alertes importantes -->
-        <?php if ($stats['pending_users'] > 0 || $stats['retards'] > 0): ?>
-        <div class="glass-effect rounded-2xl p-6 mb-8 border-l-4 border-yellow-500">
+        <?php if ($stats['pending_users'] > 0 || $stats['retards'] > 0 || $stats['urgences_medicales'] > 0): ?>
+        <div class="glass-effect rounded-2xl p-6 mb-8 border-l-4 border-yellow-500 pulse-alert">
             <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-4">
                     <div class="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center">
@@ -110,67 +111,86 @@ $recent_autorisations = $pdo->query($recent_auth_sql)->fetchAll(PDO::FETCH_ASSOC
                                 $alerts = [];
                                 if ($stats['pending_users'] > 0) $alerts[] = $stats['pending_users'] . " utilisateur(s) en attente";
                                 if ($stats['retards'] > 0) $alerts[] = $stats['retards'] . " retard(s) de pointage";
+                                if ($stats['urgences_medicales'] > 0) $alerts[] = $stats['urgences_medicales'] . " urgence(s) médicale(s)";
                                 echo implode(' • ', $alerts);
                             ?>
                         </p>
                     </div>
                 </div>
-                <a href="users.php" class="bg-yellow-500 text-white px-6 py-2 rounded-xl hover:bg-yellow-600 transition">
+                <a href="gestion_autorisations.php" class="bg-yellow-500 text-white px-6 py-2 rounded-xl hover:bg-yellow-600 transition">
                     Vérifier
                 </a>
             </div>
         </div>
         <?php endif; ?>
 
-        <!-- Statistiques -->
+        <!-- Cartes de navigation principales -->
         <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="glass-effect rounded-2xl p-6 text-white stat-card">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-gray-400 text-sm">Utilisateurs totaux</p>
-                        <h3 class="text-3xl font-bold"><?php echo $stats['total_users']; ?></h3>
-                    </div>
+            <!-- Gestion des Autorisations -->
+            <a href="gestion_autorisations.php" class="glass-effect rounded-2xl p-6 stat-card border-l-4 border-blue-500 hover:bg-blue-500/10 transition">
+                <div class="flex items-center justify-between mb-4">
                     <div class="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-users text-blue-400"></i>
+                        <i class="fas fa-file-alt text-blue-400 text-xl"></i>
                     </div>
+                    <span class="text-blue-400 text-sm font-semibold">Accéder</span>
                 </div>
-            </div>
-            
-            <div class="glass-effect rounded-2xl p-6 text-white stat-card <?php echo $stats['pending_users'] > 0 ? 'pulse-alert border border-yellow-500/50' : ''; ?>">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-gray-400 text-sm">En attente</p>
-                        <h3 class="text-3xl font-bold"><?php echo $stats['pending_users']; ?></h3>
-                    </div>
-                    <div class="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-clock text-yellow-400"></i>
-                    </div>
+                <h3 class="text-white font-bold text-lg mb-2">Gestion des Autorisations</h3>
+                <p class="text-gray-400 text-sm">Centre complet de gestion des sorties</p>
+                <div class="mt-4 flex justify-between items-center">
+                    <span class="text-white text-sm"><?php echo $stats['total_autorisations']; ?> total</span>
+                    <?php if ($stats['pending_autorisations'] > 0): ?>
+                        <span class="bg-yellow-500 text-white px-2 py-1 rounded-full text-xs"><?php echo $stats['pending_autorisations']; ?> en attente</span>
+                    <?php endif; ?>
                 </div>
-            </div>
-            
-            <div class="glass-effect rounded-2xl p-6 text-white stat-card">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-gray-400 text-sm">Autorisations</p>
-                        <h3 class="text-3xl font-bold"><?php echo $stats['total_autorisations']; ?></h3>
-                    </div>
+            </a>
+
+            <!-- Utilisateurs -->
+            <a href="users.php" class="glass-effect rounded-2xl p-6 stat-card border-l-4 border-green-500 hover:bg-green-500/10 transition">
+                <div class="flex items-center justify-between mb-4">
                     <div class="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-file-alt text-green-400"></i>
+                        <i class="fas fa-users text-green-400 text-xl"></i>
                     </div>
+                    <span class="text-green-400 text-sm font-semibold">Gérer</span>
                 </div>
-            </div>
-            
-            <div class="glass-effect rounded-2xl p-6 text-white stat-card <?php echo $stats['retards'] > 0 ? 'pulse-alert border border-red-500/50' : ''; ?>">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="text-gray-400 text-sm">Retards</p>
-                        <h3 class="text-3xl font-bold"><?php echo $stats['retards']; ?></h3>
-                    </div>
-                    <div class="w-12 h-12 bg-red-500/20 rounded-xl flex items-center justify-center">
-                        <i class="fas fa-exclamation-circle text-red-400"></i>
-                    </div>
+                <h3 class="text-white font-bold text-lg mb-2">Gestion des Utilisateurs</h3>
+                <p class="text-gray-400 text-sm">Gestion des stagiaires et comptes</p>
+                <div class="mt-4 flex justify-between items-center">
+                    <span class="text-white text-sm"><?php echo $stats['total_users']; ?> stagiaires</span>
+                    <?php if ($stats['pending_users'] > 0): ?>
+                        <span class="bg-yellow-500 text-white px-2 py-1 rounded-full text-xs"><?php echo $stats['pending_users']; ?> en attente</span>
+                    <?php endif; ?>
                 </div>
-            </div>
+            </a>
+
+            <!-- Statistiques Médicales -->
+            <a href="statistiques_medicales.php" class="glass-effect rounded-2xl p-6 stat-card border-l-4 border-purple-500 hover:bg-purple-500/10 transition">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-heartbeat text-purple-400 text-xl"></i>
+                    </div>
+                    <span class="text-purple-400 text-sm font-semibold">Analyser</span>
+                </div>
+                <h3 class="text-white font-bold text-lg mb-2">Statistiques Médicales</h3>
+                <p class="text-gray-400 text-sm">Suivi des consultations médicales</p>
+                <div class="mt-4">
+                    <span class="text-white text-sm">Historique complet</span>
+                </div>
+            </a>
+
+            <!-- Rapports -->
+            <a href="reports.php" class="glass-effect rounded-2xl p-6 stat-card border-l-4 border-orange-500 hover:bg-orange-500/10 transition">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-chart-bar text-orange-400 text-xl"></i>
+                    </div>
+                    <span class="text-orange-400 text-sm font-semibold">Générer</span>
+                </div>
+                <h3 class="text-white font-bold text-lg mb-2">Rapports et Analytics</h3>
+                <p class="text-gray-400 text-sm">Rapports détaillés et statistiques</p>
+                <div class="mt-4">
+                    <span class="text-white text-sm">Export PDF/Excel</span>
+                </div>
+            </a>
         </div>
 
         <div class="grid lg:grid-cols-2 gap-8">
@@ -215,7 +235,7 @@ $recent_autorisations = $pdo->query($recent_auth_sql)->fetchAll(PDO::FETCH_ASSOC
             <div class="glass-effect rounded-2xl p-6">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-xl font-bold text-white">Autorisations récentes</h2>
-                    <a href="approvals.php" class="text-gray-400 hover:text-white text-sm">Voir tout</a>
+                    <a href="gestion_autorisations.php" class="text-gray-400 hover:text-white text-sm">Voir tout</a>
                 </div>
                 
                 <?php if (empty($recent_autorisations)): ?>
@@ -235,6 +255,11 @@ $recent_autorisations = $pdo->query($recent_auth_sql)->fetchAll(PDO::FETCH_ASSOC
                                             <?php echo date('d/m/Y', strtotime($auth['date_retour'])); ?>
                                         </p>
                                         <p class="text-gray-400 text-sm">Chambre: <?php echo $auth['chambre']; ?></p>
+                                        <?php if ($auth['type_autorisation'] === 'urgence'): ?>
+                                            <span class="bg-red-500/30 text-red-300 px-2 py-1 rounded-full text-xs mt-1 inline-block">
+                                                <i class="fas fa-bolt mr-1"></i>Urgence
+                                            </span>
+                                        <?php endif; ?>
                                     </div>
                                     <span class="<?php 
                                         echo match($auth['status']) {
@@ -258,21 +283,25 @@ $recent_autorisations = $pdo->query($recent_auth_sql)->fetchAll(PDO::FETCH_ASSOC
         <div class="glass-effect rounded-2xl p-6 mt-8">
             <h2 class="text-xl font-bold text-white mb-6">Actions Rapides</h2>
             <div class="grid md:grid-cols-4 gap-4">
-                <a href="users.php" class="bg-blue-500/20 text-blue-300 p-4 rounded-xl hover:bg-blue-500/30 transition border border-blue-500/30 text-center">
-                    <i class="fas fa-users text-2xl mb-2"></i>
-                    <div class="font-semibold">Gérer Utilisateurs</div>
+                <a href="autorisations_normales.php" class="bg-blue-500/20 text-blue-300 p-4 rounded-xl hover:bg-blue-500/30 transition border border-blue-500/30 text-center">
+                    <i class="fas fa-file-alt text-2xl mb-2"></i>
+                    <div class="font-semibold">Autorisations Normales</div>
+                    <div class="text-xs text-blue-200 mt-1">Gérer les demandes</div>
                 </a>
-                <a href="approvals.php" class="bg-green-500/20 text-green-300 p-4 rounded-xl hover:bg-green-500/30 transition border border-green-500/30 text-center">
-                    <i class="fas fa-check-circle text-2xl mb-2"></i>
-                    <div class="font-semibold">Approbations</div>
+                <a href="autorisations_urgence.php" class="bg-red-500/20 text-red-300 p-4 rounded-xl hover:bg-red-500/30 transition border border-red-500/30 text-center">
+                    <i class="fas fa-bolt text-2xl mb-2"></i>
+                    <div class="font-semibold">Autorisations Urgence</div>
+                    <div class="text-xs text-red-200 mt-1">Créer une urgence</div>
                 </a>
-                <a href="reports.php" class="bg-purple-500/20 text-purple-300 p-4 rounded-xl hover:bg-purple-500/30 transition border border-purple-500/30 text-center">
-                    <i class="fas fa-chart-bar text-2xl mb-2"></i>
-                    <div class="font-semibold">Rapports</div>
+                <a href="cas_medicaux.php" class="bg-orange-500/20 text-orange-300 p-4 rounded-xl hover:bg-orange-500/30 transition border border-orange-500/30 text-center">
+                    <i class="fas fa-heartbeat text-2xl mb-2"></i>
+                    <div class="font-semibold">Cas Médicaux</div>
+                    <div class="text-xs text-orange-200 mt-1">Urgences santé</div>
                 </a>
-                <a href="../auth/logout.php" class="bg-red-500/20 text-red-300 p-4 rounded-xl hover:bg-red-500/30 transition border border-red-500/30 text-center">
-                    <i class="fas fa-sign-out-alt text-2xl mb-2"></i>
-                    <div class="font-semibold">Déconnexion</div>
+                <a href="statistiques_medicales.php" class="bg-purple-500/20 text-purple-300 p-4 rounded-xl hover:bg-purple-500/30 transition border border-purple-500/30 text-center">
+                    <i class="fas fa-chart-line text-2xl mb-2"></i>
+                    <div class="font-semibold">Statistiques Médicales</div>
+                    <div class="text-xs text-purple-200 mt-1">Suivi consultations</div>
                 </a>
             </div>
         </div>

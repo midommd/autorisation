@@ -13,7 +13,7 @@ if (isset($_GET['approve'])) {
     $sql = "UPDATE autorisations SET status = 'approved' WHERE id = ?";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$auth_id]);
-    header('Location: approvals.php?success=Autorisation approuvée');
+    header('Location: autorisations_normales.php?success=Autorisation approuvée');
     exit;
 }
 
@@ -22,7 +22,7 @@ if (isset($_GET['reject'])) {
     $sql = "UPDATE autorisations SET status = 'rejected' WHERE id = ?";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$auth_id]);
-    header('Location: approvals.php?success=Autorisation rejetée');
+    header('Location: autorisations_normales.php?success=Autorisation rejetée');
     exit;
 }
 
@@ -31,7 +31,7 @@ if (isset($_GET['pointage'])) {
     $sql = "UPDATE autorisations SET pointage = 1 WHERE id = ?";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$auth_id]);
-    header('Location: approvals.php?success=Pointage enregistré');
+    header('Location: autorisations_normales.php?success=Pointage enregistré');
     exit;
 }
 
@@ -41,17 +41,18 @@ $search = $_GET['search'] ?? '';
 
 $sql = "SELECT a.*, u.nom, u.prenom, u.telephone as user_telephone 
         FROM autorisations a 
-        JOIN users u ON a.user_id = u.id";
+        JOIN users u ON a.user_id = u.id
+        WHERE a.type_autorisation = 'normale'";
 $params = [];
 
 if ($filter === 'pending') {
-    $sql .= " WHERE a.status = 'pending'";
+    $sql .= " AND a.status = 'pending'";
 } elseif ($filter === 'approved') {
-    $sql .= " WHERE a.status = 'approved'";
+    $sql .= " AND a.status = 'approved'";
 } elseif ($filter === 'rejected') {
-    $sql .= " WHERE a.status = 'rejected'";
+    $sql .= " AND a.status = 'rejected'";
 } elseif ($filter === 'retards') {
-    $sql .= " WHERE a.status = 'approved' AND a.pointage = 0 AND a.date_retour < CURDATE()";
+    $sql .= " AND a.status = 'approved' AND a.pointage = 0 AND a.date_retour < CURDATE()";
 }
 
 if (!empty($search)) {
@@ -71,7 +72,7 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestion Autorisations - CMC Tamsna</title>
+    <title>Autorisations Normales - CMC Tamsna</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -106,21 +107,21 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="container mx-auto px-6 py-4">
             <div class="flex justify-between items-center">
                 <div class="flex items-center space-x-3">
-                    <a href="index.php" class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center hover:scale-110 transition">
+                    <a href="gestion_autorisations.php" class="w-12 h-12 bg-red-500/20 rounded-2xl flex items-center justify-center hover:scale-110 transition">
                         <i class="fas fa-arrow-left text-red-400 text-xl"></i>
                     </a>
                     <div>
-                        <h1 class="text-white font-bold text-xl">Gestion des Autorisations</h1>
-                        <p class="text-gray-400 text-sm">Approbation et suivi des sorties</p>
+                        <h1 class="text-white font-bold text-xl">Autorisations Normales</h1>
+                        <p class="text-gray-400 text-sm">Gestion des sorties programmées par les stagiaires</p>
                     </div>
                 </div>
                 
                 <nav class="flex space-x-2">
-                    <a href="index.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Tableau de Bord</a>
-                    <a href="users.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Utilisateurs</a>
-                    <a href="approvals.php" class="bg-red-500/20 text-white px-4 py-2 rounded-xl">Autorisations</a>
-                    <a href="urgence_autorisations.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Urgences</a>
-                    <a href="reports.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Rapports</a>
+                    <a href="gestion_autorisations.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Accueil</a>
+                    <a href="autorisations_normales.php" class="bg-blue-500/20 text-white px-4 py-2 rounded-xl">Normales</a>
+                    <a href="autorisations_urgence.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Urgences</a>
+                    <a href="cas_medicaux.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Médicaux</a>
+                    <a href="statistiques_medicales.php" class="text-gray-400 hover:bg-white/10 px-4 py-2 rounded-xl transition">Statistiques</a>
                 </nav>
             </div>
         </div>
@@ -155,17 +156,12 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <input type="hidden" name="filter" value="<?php echo $filter; ?>">
                         <input type="text" name="search" value="<?php echo htmlspecialchars($search); ?>" 
                                placeholder="Nom, prénom ou chambre..."
-                               class="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-transparent transition">
-                        <button type="submit" class="bg-red-500 text-white px-6 py-2 rounded-xl hover:bg-red-600 transition">
+                               class="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition">
+                        <button type="submit" class="bg-blue-500 text-white px-6 py-2 rounded-xl hover:bg-blue-600 transition">
                             <i class="fas fa-search"></i>
                         </button>
-                        <div class="mt-4">
-                            <a href="filtered_autorisations.php" class="bg-purple-500 text-white px-6 py-3 rounded-xl hover:bg-purple-600 transition font-semibold inline-flex items-center">
-                                <i class="fas fa-chart-bar mr-2"></i>Rapports par Période
-                            </a>
-                        </div>
                         <?php if (!empty($search)): ?>
-                            <a href="approvals.php?filter=<?php echo $filter; ?>" class="bg-gray-500 text-white px-4 py-2 rounded-xl hover:bg-gray-600 transition">
+                            <a href="autorisations_normales.php?filter=<?php echo $filter; ?>" class="bg-gray-500 text-white px-4 py-2 rounded-xl hover:bg-gray-600 transition">
                                 <i class="fas fa-times"></i>
                             </a>
                         <?php endif; ?>
@@ -178,9 +174,12 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="glass-effect rounded-2xl p-6">
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-2xl font-bold text-white">
-                    <?php echo count($autorisations); ?> autorisation(s) 
+                    <?php echo count($autorisations); ?> autorisation(s) normale(s)
                     <?php echo $filter !== 'pending' ? " - " . ucfirst($filter) : ''; ?>
                 </h2>
+                <a href="filtered_autorisations.php" class="bg-purple-500 text-white px-6 py-3 rounded-xl hover:bg-purple-600 transition font-semibold inline-flex items-center">
+                    <i class="fas fa-chart-bar mr-2"></i>Rapports par Période
+                </a>
             </div>
 
             <?php if (empty($autorisations)): ?>
@@ -189,7 +188,7 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <i class="fas fa-file-alt text-gray-400 text-3xl"></i>
                     </div>
                     <h3 class="text-xl font-bold text-gray-400 mb-2">Aucune autorisation trouvée</h3>
-                    <p class="text-gray-500">Aucune autorisation ne correspond à vos critères de recherche.</p>
+                    <p class="text-gray-500">Aucune autorisation normale ne correspond à vos critères de recherche.</p>
                 </div>
             <?php else: ?>
                 <div class="grid gap-6">
@@ -254,9 +253,6 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <div class="flex justify-between items-center pt-4 border-t border-white/10">
                                 <div class="text-sm text-gray-400">
                                     Demande soumise le <?php echo date('d/m/Y', strtotime($auth['date_demande'])); ?>
-                                    <?php if ($auth['type_autorisation'] === 'urgence'): ?>
-                                        • <span class="text-red-400"><i class="fas fa-bolt mr-1"></i>Urgence</span>
-                                    <?php endif; ?>
                                 </div>
                                 
                                 <div class="flex space-x-2">
@@ -284,7 +280,7 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                             <i class="fas fa-check-circle mr-2"></i>Pointer
                                         </a>
                                         
-                                        <!-- BOUTON D'IMPRESSION POUR LES AUTORISATIONS APPROUVÉES -->
+                                        <!-- BOUTON D'IMPRESSION -->
                                         <a href="print_autorisation.php?id=<?php echo $auth['id']; ?>" 
                                            target="_blank"
                                            class="bg-blue-500 text-white px-6 py-2 rounded-xl hover:bg-blue-600 transition font-semibold">
@@ -296,7 +292,7 @@ $autorisations = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                             <i class="fas fa-check-double mr-2"></i>Pointé
                                         </span>
                                         
-                                        <!-- BOUTON D'IMPRESSION MÊME APRÈS POINTAGE -->
+                                        <!-- BOUTON D'IMPRESSION -->
                                         <a href="print_autorisation.php?id=<?php echo $auth['id']; ?>" 
                                            target="_blank"
                                            class="bg-blue-500 text-white px-6 py-2 rounded-xl hover:bg-blue-600 transition font-semibold">
